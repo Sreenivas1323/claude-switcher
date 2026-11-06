@@ -27,6 +27,9 @@ final class AppModel: ObservableObject {
     /// accessToken -> account id, so the profile endpoint is only hit when the token changes.
     private var tokenOwner: [String: String] = [:]
     private var syncing = false
+    private var lastAutoSwitch: Date?
+    /// Minimum gap between automatic switches, so a burst of usage can't ping-pong accounts.
+    static let autoSwitchCooldown: TimeInterval = 300
     private var timers: [Timer] = []
 
     static let syncInterval: TimeInterval = 10
@@ -252,11 +255,13 @@ final class AppModel: ObservableObject {
     }
 
     private func maybeAutoSwitch() async {
+        if let last = lastAutoSwitch, Date().timeIntervalSince(last) < Self.autoSwitchCooldown { return }
         guard autoSwitch, let activeID, let current = usage[activeID],
               Self.effective(current) >= threshold,
               let next = bestAlternative
         else { return }
         let pct = Int(Self.effective(current))
+        lastAutoSwitch = Date()
         await switchTo(next.id, reason: "\(activeAccount?.title ?? "Previous account") hit \(pct)%.")
     }
 

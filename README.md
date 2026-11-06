@@ -39,11 +39,18 @@ cd claude-switcher
 
 Logging in again with an account you already have just refreshes its saved tokens.
 
+> **Don't `/logout` before logging in with another account.** Logging out can revoke the
+> refresh token of the account you're leaving, which kills the copy Claude Switcher saved.
+> Just `/login` over the top. If an account ever shows "Session expired", log in with it once more.
+
 ## Switching
 
 Click **Switch** on any account, or **Use freshest** to jump to the one with the most headroom.
-New `claude` sessions pick it up right away. Sessions that are already running cache their
-login, so restart them (or start a new one) to move them over.
+New `claude` sessions pick it up right away. Running sessions cache the keychain for a short
+while (about 30 seconds) and then follow; restart a session if you want it to move immediately.
+
+Auto-switch waits at least 5 minutes between switches and only moves to an account that is
+below your threshold, so it won't bounce back and forth.
 
 ## How it works
 
@@ -80,6 +87,27 @@ swift build
 | `AccountStore.swift` | Saved accounts (metadata on disk, tokens in keychain) |
 | `AppModel.swift` | Sync loop, usage polling, switching, auto-switch |
 | `MenuPanel.swift` | The menu bar UI |
+
+## Similar projects
+
+Lots of people have hit the same wall. If this one doesn't fit, one of these might:
+
+| Project | What it is |
+| --- | --- |
+| [realiti4/claude-swap](https://github.com/realiti4/claude-swap) | The most complete CLI (Python): switching, auto-switch strategies, per-terminal accounts (`cswap run`), TUI. macOS, Linux, Windows. |
+| [Symbioose/claude-account-switcher](https://github.com/Symbioose/claude-account-switcher) | macOS menu bar switcher for Claude Code and Codex CLI with live usage. |
+| [Nemo-Illusionist/claude-code-account-switcher](https://github.com/Nemo-Illusionist/claude-code-account-switcher) | Binds an account to each directory; switches on `cd` (Rust). |
+| [hamed-elfayome/Claude-Usage-Tracker](https://github.com/hamed-elfayome/Claude-Usage-Tracker) | Usage monitor for the menu bar with multiple profiles (no switching). |
+| [tddworks/ClaudeBar](https://github.com/tddworks/ClaudeBar) | Quota monitor for Claude, Codex, Gemini and more. |
+| [f-is-h/Usage4Claude](https://github.com/f-is-h/Usage4Claude) | Session and weekly quota rings in the menu bar. |
+
+Claude Switcher's angle: a small native menu bar app, no Python or Node, that captures
+accounts automatically when you log in and puts usage and switching in one place.
+
+## Contributing
+
+Issues and PRs are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+For anything security related, see [SECURITY.md](SECURITY.md).
 
 ## License
 
