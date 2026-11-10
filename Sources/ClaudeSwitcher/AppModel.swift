@@ -9,6 +9,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var activeID: String?
     @Published private(set) var usage: [String: Usage] = [:]
     @Published private(set) var errors: [String: String] = [:]
+    /// Accounts whose saved login was rejected; they need a fresh `claude auth login`.
+    @Published private(set) var needsLogin: Set<String> = []
+    /// Account we opened a Terminal login for, until the new login shows up.
+    @Published private(set) var awaitingLogin: String?
     @Published private(set) var switchingTo: String?
     @Published private(set) var isRefreshing = false
     @Published var banner: String?
@@ -139,6 +143,11 @@ final class AppModel: ObservableObject {
             }
             if let profile { apply(profile, to: &saved) }
             store.upsert(saved)
+            if needsLogin.contains(id) || awaitingLogin == id {
+                markLoggedIn(id)
+                banner = "\(saved.title) is logged in again."
+                Task { await refreshUsage(only: id) }
+            }
         } else if let liveAccountData, let liveInfo, liveInfo.key == id {
             var account = SavedAccount(
                 id: id,
@@ -154,6 +163,7 @@ final class AppModel: ObservableObject {
             do {
                 try store.setCredentials(current, for: id)
                 store.upsert(account)
+                awaitingLogin = nil
                 banner = "Added \(account.email)"
                 Task { await refreshUsage(only: id) }
             } catch {
@@ -193,9 +203,9 @@ final class AppModel: ObservableObject {
                 let creds = try await freshCredentials(for: account.id)
                 guard let token = creds.accessToken else { throw APIError.needsLogin }
                 usage[account.id] = try await AnthropicAPI.usage(accessToken: token)
-                errors[account.id] = nil
+                markLoggedIn(account.id)
             } catch {
-                errors[account.id] = error.localizedDescription
+                record(error, for: account.id)
             }
         }
         if only == nil { await maybeAutoSwitch() }
@@ -244,14 +254,25 @@ final class AppModel: ObservableObject {
             try ClaudeCode.setLiveOAuthAccount(target.oauthAccount)
             if let token = creds.accessToken { tokenOwner[token] = id }
             activeID = id
-            errors[id] = nil
+            markLoggedIn(id)
             banner = "Switched to \(target.title). New Claude Code sessions use it now."
             if let reason { notify(title: "Switched to \(target.title)", body: reason) }
             Task { await refreshUsage(only: id) }
         } catch {
-            errors[id] = error.localizedDescription
+            record(error, for: id)
             banner = "Couldn't switch: \(error.localizedDescription)"
         }
+    }
+
+    private func record(_ error: Error, for id: String) {
+        errors[id] = error.localizedDescription
+        if case APIError.needsLogin = error { needsLogin.insert(id) }
+    }
+
+    private func markLoggedIn(_ id: String) {
+        errors[id] = nil
+        needsLogin.remove(id)
+        if awaitingLogin == id { awaitingLogin = nil }
     }
 
     private func maybeAutoSwitch() async {
@@ -282,6 +303,10 @@ final class AppModel: ObservableObject {
         ]
         usage = ["a": demoUsage(87, 1.6, 52, 3.2), "b": demoUsage(12, 3.9, 31, 5.5), "c": demoUsage(0, 5, 64, 1.4)]
         activeID = "a"
+        if CommandLine.arguments.contains("--demo-expired") {
+            errors["c"] = APIError.needsLogin.localizedDescription
+            needsLogin = ["c"]
+        }
     }
 
     // MARK: - Account management
@@ -297,24 +322,61 @@ final class AppModel: ObservableObject {
         guard id != activeID else { return }
         store.remove(id)
         usage[id] = nil
-        errors[id] = nil
+        markLoggedIn(id)
         accounts = store.accounts
     }
 
     /// Opens Terminal with `claude auth login`. The new account is picked up automatically
     /// once the login finishes; the current one is already saved.
     func addAccount() {
+        openLogin(email: nil)
+    }
+
+    /// Opens Terminal with `claude auth login --email <account>` for an account whose saved
+    /// login stopped working. Once it finishes, the fresh tokens are captured automatically.
+    func relogin(_ id: String) {
+        guard let account = accounts.first(where: { $0.id == id }) else { return }
+        if isDemo { banner = "Demo: would run claude auth login --email \(account.email)"; return }
+        if openLogin(email: account.email) {
+            awaitingLogin = id
+            banner = "Finish signing in as \(account.email) in Terminal. Claude Code will be on that account afterwards."
+        }
+    }
+
+    @discardableResult
+    private func openLogin(email: String?) -> Bool {
+        var command = "\(shellQuote(Self.claudePath)) auth login"
+        if let email { command += " --email \(shellQuote(email))" }
         let script = """
         tell application "Terminal"
             activate
-            do script "claude auth login"
+            do script "\(appleScriptEscape(command))"
         end tell
         """
         var error: NSDictionary?
         NSAppleScript(source: script)?.executeAndReturnError(&error)
         if error != nil {
-            banner = "Run `claude auth login` (or /login inside Claude Code) with the other account."
+            banner = "Couldn't open Terminal. Run `\(command)` yourself."
+            return false
         }
+        return true
+    }
+
+    /// Terminal opens a login shell, which normally has `claude` on PATH, but GUI apps don't
+    /// inherit it; prefer a known install location when there is one.
+    static let claudePath: String = {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let candidates = ["\(home)/.local/bin/claude", "\(home)/.claude/local/claude",
+                          "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) } ?? "claude"
+    }()
+
+    private func shellQuote(_ s: String) -> String {
+        "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private func appleScriptEscape(_ s: String) -> String {
+        s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
     }
 
     private func setLaunchAtLogin(_ enabled: Bool) {

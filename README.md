@@ -41,7 +41,8 @@ Logging in again with an account you already have just refreshes its saved token
 
 > **Don't `/logout` before logging in with another account.** Logging out can revoke the
 > refresh token of the account you're leaving, which kills the copy Claude Switcher saved.
-> Just `/login` over the top. If an account ever shows "Session expired", log in with it once more.
+> Just `/login` over the top. If an account ever shows "Session expired", click **Log in again** on it: Terminal opens
+> `claude auth login` with that email pre-filled, and the fresh login is picked up automatically.
 
 ## Switching
 

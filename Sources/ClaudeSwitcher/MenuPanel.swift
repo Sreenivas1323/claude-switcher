@@ -140,7 +140,25 @@ struct AccountRow: View {
                 Text("Checking usage…").font(.caption).foregroundStyle(.secondary)
             }
 
-            if let error {
+            if model.awaitingLogin == account.id {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text("Waiting for you to finish signing in…")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Reopen") { model.relogin(account.id) }
+                        .controlSize(.small)
+                }
+            } else if model.needsLogin.contains(account.id) {
+                HStack(spacing: 6) {
+                    Label("Session expired", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange)
+                    Spacer()
+                    Button("Log in again") { model.relogin(account.id) }
+                        .controlSize(.small)
+                        .help("Opens Terminal with claude auth login for \(account.email)")
+                }
+            } else if let error {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .font(.caption).foregroundStyle(.orange)
             }
@@ -177,6 +195,8 @@ struct AccountRow: View {
     @ViewBuilder private var actionButton: some View {
         if isActive {
             Text("Active").font(.caption.weight(.medium)).foregroundStyle(.green)
+        } else if model.needsLogin.contains(account.id) || model.awaitingLogin == account.id {
+            EmptyView()
         } else if model.switchingTo == account.id {
             ProgressView().controlSize(.small)
         } else {
